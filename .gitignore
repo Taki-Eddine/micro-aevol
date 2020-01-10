@@ -6,3 +6,4 @@ libmicro_aevol.a
 pdc_micro_aevol
 simulation_example_*
 CMakeLists.txt
+.vscode/*
