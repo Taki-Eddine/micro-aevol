@@ -78,6 +78,7 @@ int main(int argc, char* argv[]) {
     int resume = -1;
     int backup_step = -1;
     int seed = -1;
+    int nb_threads = -1;
 
     const char * options_list = "e:::n:w:h:m:g:b:r:s:";
     static struct option long_options_list[] = {
@@ -147,6 +148,10 @@ int main(int argc, char* argv[]) {
                 nbstep = atoi(optarg);
                 break;
             }
+            case 't' : {
+                nb_threads = atoi(optarg);
+                break;
+            }
             default : {
                 // An error message is printed in getopt_long, we just need to exit
                 printf("Error unknown parameter\n");
@@ -172,6 +177,7 @@ int main(int argc, char* argv[]) {
         if (genome_size == -1) genome_size = 5000;
         if (backup_step == -1) backup_step = 1000;
         if (seed == -1) seed = 566545665;
+        if (nb_threads == -1) nb_threads = 1;
     }
 
 
@@ -179,7 +185,7 @@ int main(int argc, char* argv[]) {
     ExpManager *exp_manager;
     if (resume == -1) {
         exp_manager = new ExpManager(height, width, seed, mutation_rate, genome_size, 0.03, 1000,
-                                                 backup_step);
+                                                 backup_step, nb_threads);
     } else {
         printf("Resuming...\n");
         exp_manager = new ExpManager(resume);

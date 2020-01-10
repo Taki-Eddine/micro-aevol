@@ -66,7 +66,7 @@ using namespace std;
  * @param backup_step : How much often checkpoint must be done
  */
 ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutation_rate, int init_length_dna,
-                       double w_max, int selection_pressure, int backup_step)
+                       double w_max, int selection_pressure, int backup_step, int nb_threads)
         : rng_(new Threefry(grid_width, grid_height, seed)) {
     // Initializing the data structure
     grid_height_ = grid_height;
@@ -86,6 +86,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
     dna_mutator_array_ = new DnaMutator *[nb_indivs_];
 
     mutation_rate_ = mutation_rate;
+    nb_threads_ = nb_threads;
 
     // Building the target environment
     Gaussian *g1 = new Gaussian(1.2, 0.52, 0.12);
@@ -1110,6 +1111,8 @@ void ExpManager::selection(int indiv_id) {
  * @param nb_gen : Number of generations to simulate
  */
 void ExpManager::run_evolution(int nb_gen) {
+
+    omp_set_num_threads(nb_threads_);
     #pragma omp parallel for
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         // dna_mutator_array_ is set only to have has_mutate() true so that RNA, protein and phenotype will be computed
