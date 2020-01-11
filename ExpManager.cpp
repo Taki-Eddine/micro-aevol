@@ -397,40 +397,47 @@ ExpManager::~ExpManager() {
  * @param first_gen : is it the first generation simulated ? (generation 1 or first generation after a restore)
  */
 void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_gen) {
-
     // Running the simulation process for each organism
-    #pragma omp parallel for
-    for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
-        selection(indiv_id);
-        prepare_mutation(indiv_id);
-
-        if (dna_mutator_array_[indiv_id]->hasMutate()) {
-            apply_mutation(indiv_id);
-            opt_prom_compute_RNA(indiv_id);
-            start_protein(indiv_id);
-            compute_protein(indiv_id);
-            translate_protein(indiv_id, w_max);
-            compute_phenotype(indiv_id);
-            compute_fitness(indiv_id, selection_pressure);
-        }
-    }
-
-    #pragma omp parallel for
-    for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
-        prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
-        internal_organisms_[indiv_id] = nullptr;
-    }
-
-    // Search for the best
-    
-    double best_fitness = prev_internal_organisms_[0]->fitness;
-    int idx_best = 0;
-    int idx_best_private = 0;
-    double best_fiteness_private = prev_internal_organisms_[0]->fitness;
-
-    #pragma omp parallel firstprivate(idx_best_private) firstprivate(best_fiteness_private)
+    double best_fitness;
+    int idx_best;
+    int idx_best_private;
+    double best_fiteness_private;
+    #pragma omp parallel
     {
         #pragma omp for
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            selection(indiv_id);
+            prepare_mutation(indiv_id);
+        }
+
+        #pragma omp for
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            if (dna_mutator_array_[indiv_id]->hasMutate()) {
+                apply_mutation(indiv_id);
+                opt_prom_compute_RNA(indiv_id);
+                start_protein(indiv_id);
+                compute_protein(indiv_id);
+                translate_protein(indiv_id, w_max);
+                compute_phenotype(indiv_id);
+                compute_fitness(indiv_id, selection_pressure);
+            }
+        }
+
+        #pragma omp for
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
+            internal_organisms_[indiv_id] = nullptr;
+        }
+
+    // Search for the best
+        #pragma omp single
+        {
+            best_fitness = prev_internal_organisms_[0]->fitness;
+            idx_best = 0;
+            idx_best_private = 0;
+            best_fiteness_private = prev_internal_organisms_[0]->fitness;
+        }
+        #pragma omp for firstprivate(idx_best_private) firstprivate(best_fiteness_private)
         for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
             if (prev_internal_organisms_[indiv_id]->fitness > best_fiteness_private) {
                 idx_best_private = indiv_id;
@@ -445,9 +452,10 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
                 idx_best = idx_best_private;
             }
         }
-    }
-    best_indiv = prev_internal_organisms_[idx_best];
 
+    }
+
+    best_indiv = prev_internal_organisms_[idx_best];
 
     // Stats
     if (first_gen) {
