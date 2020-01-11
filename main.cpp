@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
     int seed = -1;
     int nb_threads = -1;
 
-    const char * options_list = "e:::n:w:h:m:g:b:r:s:";
+    const char * options_list = "e:::n:w:h:m:g:b:r:s:t:";
     static struct option long_options_list[] = {
             // Print help
             { "help",     no_argument,        NULL, 'e' },
@@ -100,6 +100,7 @@ int main(int argc, char* argv[]) {
             { "backup_step", required_argument,  NULL, 'b' },
             // Seed
             { "seed", required_argument,  NULL, 's' },
+            { "nb_threads", required_argument,  NULL, 't' },
             { 0, 0, 0, 0 }
     };
 
