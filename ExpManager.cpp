@@ -40,6 +40,7 @@ using namespace std::chrono;
 #endif
 
 #include <omp.h>
+#include <mpi.h>
 
 using namespace std;
 
@@ -66,15 +67,17 @@ using namespace std;
  * @param backup_step : How much often checkpoint must be done
  */
 ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutation_rate, int init_length_dna,
-                       double w_max, int selection_pressure, int backup_step, int nb_threads)
+                       double w_max, int selection_pressure, int backup_step, int nb_threads, int world_rank, char* processor_name)
         : rng_(new Threefry(grid_width, grid_height, seed)) {
     // Initializing the data structure
     grid_height_ = grid_height;
     grid_width_ = grid_width;
 
-    backup_step_ = backup_step;
 
-    nb_indivs_ = grid_height * grid_width;
+    nb_indivs_ = grid_height * grid_width / 2; // We devide by 2 given that we split load
+                                                // by two machines.
+
+    backup_step_ = backup_step;
 
     w_max_ = w_max;
     selection_pressure_ = selection_pressure;
@@ -87,52 +90,115 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
 
     mutation_rate_ = mutation_rate;
     nb_threads_ = nb_threads;
-
-    // Building the target environment
-    Gaussian *g1 = new Gaussian(1.2, 0.52, 0.12);
-    Gaussian *g2 = new Gaussian(-1.4, 0.5, 0.07);
-    Gaussian *g3 = new Gaussian(0.3, 0.8, 0.03);
-
-    target = new double[300];
-    for (int i = 0; i < 300; i++) {
-        double pt_i = ((double) i) / 300.0;
-
-        double tmp = g1->compute_y(pt_i);
-        tmp += g2->compute_y(pt_i);
-        tmp += g3->compute_y(pt_i);
-
-        tmp = tmp > Y_MAX ? Y_MAX : tmp;
-        tmp = tmp < Y_MIN ? Y_MIN : tmp;
-
-        target[i] = tmp;
-    }
-
-    delete g1;
-    delete g2;
-    delete g3;
-
-    geometric_area_ = 0;
-
-
-    for (int i = 0; i < 299; i++) {
-        geometric_area_ += ((fabs(target[i]) + fabs(target[i + 1])) / (600.0));
-    }
-
-    printf("Initialized environmental target %f\n", geometric_area_);
-
+    world_rank_ = world_rank;
+    processor_name_ = processor_name;
 
     // Initializing the PRNGs
     for (int indiv_id = 0; indiv_id < nb_indivs_; ++indiv_id) {
         dna_mutator_array_[indiv_id] = nullptr;
     }
+    target = new double[300];
 
-    // Generate a random organism that is better than nothing
-    double r_compare = 0;
+    if (world_rank_ == 0){
+        // Building the target environment
+        printf("Processor %d:%s is building the target env\n", world_rank_, processor_name_);
+        Gaussian *g1 = new Gaussian(1.2, 0.52, 0.12);
+        Gaussian *g2 = new Gaussian(-1.4, 0.5, 0.07);
+        Gaussian *g3 = new Gaussian(0.3, 0.8, 0.03);
 
-    while (r_compare >= 0) {
-        auto random_organism = std::make_shared<Organism>(this, init_length_dna, 0);
-        internal_organisms_[0] = random_organism;
+        
+        for (int i = 0; i < 300; i++) {
+            double pt_i = ((double) i) / 300.0;
 
+            double tmp = g1->compute_y(pt_i);
+            tmp += g2->compute_y(pt_i);
+            tmp += g3->compute_y(pt_i);
+
+            tmp = tmp > Y_MAX ? Y_MAX : tmp;
+            tmp = tmp < Y_MIN ? Y_MIN : tmp;
+
+            target[i] = tmp;
+        }
+
+        delete g1;
+        delete g2;
+        delete g3;
+
+        geometric_area_ = 0;
+
+
+        for (int i = 0; i < 299; i++) {
+            geometric_area_ += ((fabs(target[i]) + fabs(target[i + 1])) / (600.0));
+        }
+
+        printf("Initialized environmental target %f\n", geometric_area_);
+
+
+
+        // Generate a random organism that is better than nothing
+        double r_compare = 0;
+
+        while (r_compare >= 0) {
+            auto random_organism = std::make_shared<Organism>(this, init_length_dna, 0);
+            internal_organisms_[0] = random_organism;
+
+            start_stop_RNA(0);
+            compute_RNA(0);
+
+            start_protein(0);
+            compute_protein(0);
+
+            translate_protein(0, w_max);
+
+            compute_phenotype(0);
+
+            compute_fitness(0, selection_pressure);
+
+            r_compare = round((random_organism->metaerror - geometric_area_) * 1E10) / 1E10;
+
+        }
+    }
+    if (world_rank_ == 0){
+        printf("Processor %d:%s is sending the target enivronment\n",world_rank_, processor_name_);
+        MPI_Send(
+                /* data         = */ target, 
+                /* count        = */ 300, 
+                /* datatype     = */ MPI_DOUBLE, 
+                /* destination  = */ 1, 
+                /* tag          = */ 0, 
+                /* communicator = */ MPI_COMM_WORLD);
+        printf("Processor %d:%s is sending the founding indiv\n",world_rank_, processor_name_);
+        MPI_Send(
+                /* data         = */ internal_organisms_[0]->dna_->seq_.data(), 
+                /* count        = */ internal_organisms_[0]->length(), 
+                /* datatype     = */ MPI_CHAR, 
+                /* destination  = */ 1, 
+                /* tag          = */ 1, 
+                /* communicator = */ MPI_COMM_WORLD);
+    }
+    else
+    {
+         MPI_Recv(
+            /* data         = */ target, 
+            /* count        = */ 300, 
+            /* datatype     = */ MPI_DOUBLE, 
+            /* source       = */ 0, 
+            /* tag          = */ 0, 
+            /* communicator = */ MPI_COMM_WORLD, 
+            /* status       = */ MPI_STATUS_IGNORE);
+        printf("Processor %d:%s has received the target enivronment\n",world_rank_, processor_name_);
+        
+        auto target_organisme = std::make_shared<Organism>(this, init_length_dna, 0);
+        MPI_Recv(
+            /* data         = */ target_organisme->dna_->seq_.data(), 
+            /* count        = */ init_length_dna, 
+            /* datatype     = */ MPI_CHAR, 
+            /* source       = */ 0, 
+            /* tag          = */ 1, 
+            /* communicator = */ MPI_COMM_WORLD, 
+            /* status       = */ MPI_STATUS_IGNORE);
+        printf("Processor %d:%s has received the founding indiv\n",world_rank_, processor_name_);
+        internal_organisms_[0] = target_organisme;
         start_stop_RNA(0);
         compute_RNA(0);
 
@@ -144,24 +210,17 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
         compute_phenotype(0);
 
         compute_fitness(0, selection_pressure);
-
-        r_compare = round((random_organism->metaerror - geometric_area_) * 1E10) / 1E10;
-
     }
-
-    printf("Populating the environment\n");
-
-    // Create a population of clones based on the randomly generated organism
+   // Create a population of clones based on the randomly generated organism
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id] =
                 std::make_shared<Organism>(this, internal_organisms_[0]);
         internal_organisms_[indiv_id]->indiv_id_ = indiv_id;
         internal_organisms_[indiv_id]->parent_id_ = 0;
-        internal_organisms_[indiv_id]->global_id = AeTime::time() * nb_indivs_ + indiv_id;
+        internal_organisms_[indiv_id]->global_id = AeTime::time() * nb_indivs_ * 2 + indiv_id + world_rank_ * nb_indivs_;
     }
-
-    // Create backup and stats directory
-    create_directory();
+    //Create backup and stats directory
+    //create_directory();
 }
 
 /**
@@ -1119,8 +1178,8 @@ void ExpManager::selection(int indiv_id) {
  * @param nb_gen : Number of generations to simulate
  */
 void ExpManager::run_evolution(int nb_gen) {
-
     omp_set_num_threads(nb_threads_);
+    
     #pragma omp parallel for
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         // dna_mutator_array_ is set only to have has_mutate() true so that RNA, protein and phenotype will be computed
@@ -1140,10 +1199,9 @@ void ExpManager::run_evolution(int nb_gen) {
 
         delete dna_mutator_array_[indiv_id];
     }
-
-    printf("Running evolution from %d to %d\n", AeTime::time(), AeTime::time() + nb_gen);
-    bool firstGen = true;
-
+    printf("Running evolution from %d to %d in processor %d:%s\n", AeTime::time(), AeTime::time() + nb_gen, world_rank_, processor_name_);
+    return;
+    /*bool firstGen = true;
     for (int gen = 0; gen < nb_gen; gen++) {
         AeTime::plusplus();
 
@@ -1161,7 +1219,7 @@ void ExpManager::run_evolution(int nb_gen) {
             save(AeTime::time());
             cout << "Backup for generation " << AeTime::time() << " done !" << endl;
         }
-    }
+    }*/
 }
 
 #ifdef USE_CUDA

@@ -83,7 +83,6 @@ Organism::Organism(ExpManager *exp_m, const std::shared_ptr<Organism> &clone) {
 
     parent_length_ = clone->length();
     dna_ = new Dna(*(clone->dna_));
-
     promoters_ = clone->promoters_;
 }
 

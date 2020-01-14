@@ -71,7 +71,7 @@ class ExpManager {
 
     public:
         ExpManager(int grid_height, int grid_width, int seed, double mutation_rate, int init_length_dna,
-                   double w_max, int selection_pressure, int backup_step, int nb_threads);
+                   double w_max, int selection_pressure, int backup_step, int nb_threads, int world_rank, char* processor_name);
         ExpManager(int time);
         ~ExpManager();
 
@@ -136,6 +136,8 @@ class ExpManager {
 
         int backup_step_;
         int nb_threads_;
+        int world_rank_;
+        char* processor_name_;
 };
 
 

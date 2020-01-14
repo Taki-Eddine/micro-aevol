@@ -31,6 +31,7 @@
 #include <cstring>
 
 #include "ExpManager.h"
+#include <mpi.h>
 
 void print_help(char* prog_path) {
     // Get the program file-name in prog_name (strip prog_path of the path)
@@ -69,6 +70,27 @@ void print_help(char* prog_path) {
 }
 
 int main(int argc, char* argv[]) {
+    // Initialize the MPI environment
+    MPI_Init(NULL, NULL);
+
+    // Find out rank, size
+    int world_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    int world_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    // Get the name of the processor
+    char processor_name[MPI_MAX_PROCESSOR_NAME];
+    int name_len;
+    MPI_Get_processor_name(processor_name, &name_len);
+
+    // We are assuming at least 2 processes for this task
+    if (world_size < 2) {
+        fprintf(stderr, "World size must be greater than 1 for %s\n", argv[0]);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    printf("Processor %d:%s has started\n",world_rank, processor_name);
 
     int nbstep = -1;
     int width = -1;
@@ -161,7 +183,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    printf("Start ExpManager\n");
 
     if (resume >= 0) {
         if ((width != -1) || (height != -1)|| (mutation_rate != -1.0) || (genome_size != -1) ||
@@ -186,20 +207,15 @@ int main(int argc, char* argv[]) {
     ExpManager *exp_manager;
     if (resume == -1) {
         exp_manager = new ExpManager(height, width, seed, mutation_rate, genome_size, 0.03, 1000,
-                                                 backup_step, nb_threads);
+                                                 backup_step, nb_threads, world_rank, processor_name);
     } else {
         printf("Resuming...\n");
         exp_manager = new ExpManager(resume);
     }
 
-#ifdef USE_CUDA
-    printf("Activate CUDA\n");
-    exp_manager->run_evolution_on_gpu(nbstep);
-#else
     exp_manager->run_evolution(nbstep);
-#endif
 
     delete exp_manager;
-
+    MPI_Finalize();
     return 0;
 }
