@@ -86,6 +86,14 @@ Organism::Organism(ExpManager *exp_m, const std::shared_ptr<Organism> &clone) {
     promoters_ = clone->promoters_;
 }
 
+Organism::Organism(ExpManager *exp_m, int length){
+    exp_m_ = exp_m;
+
+    rna_count_ = 0;
+    dna_ = new Dna(length);
+    parent_length_ = length;
+}
+
 /**
  * Create an Organism from a backup/checkpointing file
  *

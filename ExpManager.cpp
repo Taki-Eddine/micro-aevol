@@ -72,7 +72,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
     // Initializing the data structure
     grid_height_ = grid_height;
     grid_width_ = grid_width;
-
+    dna_length_ = init_length_dna;
 
     nb_indivs_ = grid_height * grid_width / 2; // We devide by 2 given that we split load
                                                 // by two machines.
@@ -92,6 +92,10 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
     nb_threads_ = nb_threads;
     world_rank_ = world_rank;
     processor_name_ = processor_name;
+    fitness_array_torecv = new double[grid_height_ * 2];
+    fitness_array_tosend = new double[grid_height_ * 2];
+    dna_array_torecv = new char[grid_height_ * 2 * dna_length_];
+    dna_array_tosend = new char[grid_height_ * 2 * dna_length_];
 
     // Initializing the PRNGs
     for (int indiv_id = 0; indiv_id < nb_indivs_; ++indiv_id) {
@@ -430,6 +434,80 @@ void ExpManager::prepare_mutation(int indiv_id) {
     }
 }
 
+void ExpManager::prepare_mutation_border(int indiv_id, char* dna_recv) {
+    Threefry::Gen *rng = new Threefry::Gen(std::move(rng_->gen(indiv_id, Threefry::MUTATION)));
+    dna_mutator_array_[indiv_id] = new DnaMutator(
+            rng,
+            dna_length_,
+            mutation_rate_, indiv_id);
+    dna_mutator_array_[indiv_id]->generate_mutations();
+
+    if (dna_mutator_array_[indiv_id]->hasMutate()) {
+        if (next_generation_reproducer_[indiv_id] < 0){
+
+            int border_id = (next_generation_reproducer_[indiv_id] * -1)-1;
+            int parent_id = border_id;
+            if (parent_id < grid_height_){
+                parent_id = parent_id + nb_indivs_;
+            } else {
+                parent_id = 2*nb_indivs_ - (grid_height_ - parent_id);
+            }
+            internal_organisms_[indiv_id] = std::make_shared<Organism>(this,dna_length_);
+            internal_organisms_[indiv_id]->parent_id_ = parent_id;
+            internal_organisms_[indiv_id]->indiv_id_ = indiv_id;
+            internal_organisms_[indiv_id]->global_id = AeTime::time() * nb_indivs_ + indiv_id;
+            strncpy(internal_organisms_[indiv_id]->dna_->seq_.data(), dna_recv+(border_id*dna_length_), dna_length_);
+            start_stop_RNA(indiv_id);
+        } else{
+            internal_organisms_[indiv_id] =
+                    std::make_shared<Organism>(this, prev_internal_organisms_[next_generation_reproducer_[indiv_id]]);
+
+            internal_organisms_[indiv_id]->global_id = AeTime::time() * nb_indivs_ + indiv_id;
+            internal_organisms_[indiv_id]->indiv_id_ = indiv_id;
+            internal_organisms_[indiv_id]->parent_id_ = next_generation_reproducer_[indiv_id];
+        }
+
+    } else {
+         if (next_generation_reproducer_[indiv_id] < 0){
+
+            int border_id = (next_generation_reproducer_[indiv_id] * -1)-1;
+            int parent_id = border_id;
+            if (parent_id < grid_height_){
+                parent_id = parent_id + nb_indivs_;
+            } else {
+                parent_id = 2*nb_indivs_ - (grid_height_ - parent_id);
+            }
+            internal_organisms_[indiv_id] = std::make_shared<Organism>(this,dna_length_);
+            internal_organisms_[indiv_id]->parent_id_ = parent_id;
+            internal_organisms_[indiv_id]->indiv_id_ = indiv_id;
+            internal_organisms_[indiv_id]->global_id = AeTime::time() * nb_indivs_ + indiv_id;
+            strncpy(internal_organisms_[indiv_id]->dna_->seq_.data(), dna_recv+(border_id*dna_length_), dna_length_);
+            start_stop_RNA(indiv_id);
+            compute_RNA(indiv_id);
+
+            start_protein(indiv_id);
+            compute_protein(indiv_id);
+
+            translate_protein(indiv_id, w_max_);
+
+            compute_phenotype(indiv_id);
+
+            compute_fitness(indiv_id, selection_pressure_);
+
+            internal_organisms_[indiv_id]->usage_count_++;
+            internal_organisms_[indiv_id]->reset_mutation_stats();
+        } else{
+        int parent_id = next_generation_reproducer_[indiv_id];
+
+        internal_organisms_[indiv_id] = prev_internal_organisms_[parent_id];
+
+        internal_organisms_[indiv_id]->usage_count_++;
+        internal_organisms_[indiv_id]->reset_mutation_stats();
+        }
+    }
+}
+
+
 /**
  * Destructor of the ExpManager class
  */
@@ -460,13 +538,113 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
     double best_fitness;
     int idx_best;
     int idx_best_private;
-    double best_fiteness_private;
+
     #pragma omp parallel
     {
+        #pragma omp single nowait
+        {
+            for (int i = 0; i < grid_height_; i++){
+                fitness_array_tosend[i] = prev_internal_organisms_[i]->fitness;
+                fitness_array_tosend[i + grid_height_] = prev_internal_organisms_[nb_indivs_ - grid_height_ + i]->fitness;
+                strncpy(dna_array_tosend + i * dna_length_, prev_internal_organisms_[i]->dna_->seq_.data(), dna_length_);
+                strncpy(dna_array_tosend + (grid_height_ + i) * dna_length_, prev_internal_organisms_[nb_indivs_ - grid_height_ + i]->dna_->seq_.data(), dna_length_);
+            }
+
+
+            if(world_rank_ == 0){
+                MPI_Send(
+                /* data         = */ fitness_array_tosend, 
+                /* count        = */ grid_height_ * 2, 
+                /* datatype     = */ MPI_DOUBLE, 
+                /* destination  = */ 1 - world_rank_, 
+                /* tag          = */ 0, 
+                /* communicator = */ MPI_COMM_WORLD);
+                printf("Processor %d:%s has sent the fiteness array\n",world_rank_, processor_name_);
+
+                MPI_Recv(
+                /* data         = */ fitness_array_torecv, 
+                /* count        = */ grid_height_ * 2, 
+                /* datatype     = */ MPI_DOUBLE, 
+                /* source       = */ 1 - world_rank_, 
+                /* tag          = */ 0, 
+                /* communicator = */ MPI_COMM_WORLD, 
+                /* status       = */ MPI_STATUS_IGNORE);
+                printf("Processor %d:%s has recvd the fiteness array\n",world_rank_, processor_name_);
+            } else{
+                MPI_Recv(
+                /* data         = */ fitness_array_torecv, 
+                /* count        = */ grid_height_ * 2, 
+                /* datatype     = */ MPI_DOUBLE, 
+                /* source       = */ 1 - world_rank_, 
+                /* tag          = */ 0, 
+                /* communicator = */ MPI_COMM_WORLD, 
+                /* status       = */ MPI_STATUS_IGNORE);
+                printf("Processor %d:%s has recvd the fiteness array\n",world_rank_, processor_name_);
+
+                MPI_Send(
+                /* data         = */ fitness_array_tosend, 
+                /* count        = */ grid_height_ * 2, 
+                /* datatype     = */ MPI_DOUBLE, 
+                /* destination  = */ 1 - world_rank_, 
+                /* tag          = */ 0, 
+                /* communicator = */ MPI_COMM_WORLD);
+                printf("Processor %d:%s has sent the fiteness array\n",world_rank_, processor_name_);
+            }
+
+            if(world_rank_ == 0){
+                MPI_Send(
+                /* data         = */ dna_array_tosend, 
+                /* count        = */ 2 * grid_height_ * dna_length_, 
+                /* datatype     = */ MPI_CHAR, 
+                /* destination  = */ 1 - world_rank_, 
+                /* tag          = */ 1, 
+                /* communicator = */ MPI_COMM_WORLD);
+                printf("Processor %d:%s has sent the dna array\n",world_rank_, processor_name_);
+
+                MPI_Recv(
+                /* data         = */ dna_array_torecv, 
+                /* count        = */ grid_height_ * 2 * dna_length_, 
+                /* datatype     = */ MPI_CHAR, 
+                /* source       = */ 1 - world_rank_, 
+                /* tag          = */ 1, 
+                /* communicator = */ MPI_COMM_WORLD, 
+                /* status       = */ MPI_STATUS_IGNORE);
+                printf("Processor %d:%s has recvd the dna array\n",world_rank_, processor_name_);
+            } else{
+                MPI_Recv(
+                /* data         = */ dna_array_torecv, 
+                /* count        = */ grid_height_ * 2 * dna_length_, 
+                /* datatype     = */ MPI_CHAR, 
+                /* source       = */ 1 - world_rank_, 
+                /* tag          = */ 1, 
+                /* communicator = */ MPI_COMM_WORLD, 
+                /* status       = */ MPI_STATUS_IGNORE);
+                printf("Processor %d:%s has recvd the dna array\n",world_rank_, processor_name_);
+
+                MPI_Send(
+                /* data         = */ dna_array_tosend, 
+                /* count        = */ 2 * grid_height_ * dna_length_, 
+                /* datatype     = */ MPI_CHAR, 
+                /* destination  = */ 1 - world_rank_, 
+                /* tag          = */ 1, 
+                /* communicator = */ MPI_COMM_WORLD);
+                printf("Processor %d:%s has sent the dna array\n",world_rank_, processor_name_);
+            }
+           
+        }
+
         #pragma omp for
-        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+        for (int indiv_id = grid_height_; indiv_id < nb_indivs_ - grid_height_; indiv_id++) {
             selection(indiv_id);
             prepare_mutation(indiv_id);
+        }
+        #pragma omp barrier
+        #pragma omp for
+        for (int indiv_id = 0; indiv_id < grid_height_; indiv_id++) {
+            selection_border(indiv_id, fitness_array_torecv);
+            prepare_mutation_border(indiv_id, dna_array_torecv);
+            selection_border(nb_indivs_ - grid_height_ + indiv_id, fitness_array_torecv);
+            prepare_mutation_border(nb_indivs_ - grid_height_ + indiv_id, dna_array_torecv);
         }
 
         #pragma omp for
@@ -487,7 +665,7 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
             prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
             internal_organisms_[indiv_id] = nullptr;
         }
-
+/*
     // Search for the best
         #pragma omp single
         {
@@ -511,9 +689,9 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
                 idx_best = idx_best_private;
             }
         }
-
+*/
     }
-
+/*
     best_indiv = prev_internal_organisms_[idx_best];
 
     // Stats
@@ -530,9 +708,9 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
         if (first_gen || dna_mutator_array_[indiv_id]->hasMutate())
             prev_internal_organisms_[indiv_id]->compute_protein_stats();
     }
-
-    stats_best->write_best();
-    stats_mean->write_average();
+*/
+    //stats_best->write_best();
+    //stats_mean->write_average();
 
 }
 
@@ -576,7 +754,7 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 
         for (const auto &prom_pair: internal_organisms_[indiv_id]->promoters_) {
             int prom_pos = prom_pair.first;
-
+        
             /* Search for terminators */
             int cur_pos = prom_pos + 22;
             cur_pos = cur_pos >= internal_organisms_[indiv_id]->length()
@@ -619,7 +797,7 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 
                 if (rna_length > 0) {
                     int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
-                    internal_organisms_[indiv_id]->rna_count_ = internal_organisms_[indiv_id]->rna_count_ + 1;
+                    internal_organisms_[indiv_id]->rna_count_ = glob_rna_idx + 1;
 
                     internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
                             prom_pos,
@@ -1172,6 +1350,70 @@ void ExpManager::selection(int indiv_id) {
                                             ((y + y_offset + grid_height_) % grid_height_);
 }
 
+
+/**
+ * Selection process: for a given cell in the grid of the population, compute which organism win the computation
+ *
+  * @param indiv_id : Unique identification number of the cell
+ */
+void ExpManager::selection_border(int indiv_id, double* border) {
+    int8_t selection_scope_x = 3;
+    int8_t selection_scope_y = 3;
+    int8_t neighborhood_size = 9;
+
+    double local_fit_array[neighborhood_size];
+    double probs[neighborhood_size];
+    int count = 0;
+    double sum_local_fit = 0.0;
+
+    int32_t x = indiv_id / grid_height_; //column
+    int32_t y = indiv_id % grid_height_; // line
+
+    int cur_x, cur_y;
+
+    for (int8_t i = -1; i < selection_scope_x - 1; i++) {
+        for (int8_t j = -1; j < selection_scope_y - 1; j++) {
+            cur_x = (x + i + grid_width_) % grid_width_;
+            cur_y = (y + j + grid_height_) % grid_height_;
+            if (i == -1 && x == 0){
+                local_fit_array[count] = border[cur_y + grid_height_];
+
+            } else if (i == 1 && x!=0){
+                local_fit_array[count] = border[cur_y];
+
+            } else {
+                local_fit_array[count] = prev_internal_organisms_[cur_x * grid_height_ + cur_y]->fitness;
+            
+            }
+               sum_local_fit += local_fit_array[count];
+
+            count++;
+        }
+    }
+
+    for (int8_t i = 0; i < neighborhood_size; i++) {
+        probs[i] = local_fit_array[i] / sum_local_fit;
+    }
+
+    auto rng = std::move(rng_->gen(indiv_id, Threefry::REPROD));
+    int found_org = rng.roulette_random(probs, neighborhood_size);
+
+    int x_offset = (found_org / selection_scope_x) - 1;
+    int y_offset = (found_org % selection_scope_y) - 1;
+    int selected;
+    if (x_offset == -1 && x == 0){
+        selected = ((y + y_offset) % grid_height_ + grid_height_ +1) * -1;
+    } else if (x_offset == 1 && x != 0){
+        selected = ((y + y_offset) % grid_height_ +1) * -1;
+    } else{
+
+        selected = ((x + x_offset + grid_width_) % grid_width_) * grid_height_ +
+                                                ((y + y_offset + grid_height_) % grid_height_);
+    }
+        next_generation_reproducer_[indiv_id] = selected;
+}
+
+
 /**
  * Run the evolution for a given number of generation
  *
@@ -1200,26 +1442,25 @@ void ExpManager::run_evolution(int nb_gen) {
         delete dna_mutator_array_[indiv_id];
     }
     printf("Running evolution from %d to %d in processor %d:%s\n", AeTime::time(), AeTime::time() + nb_gen, world_rank_, processor_name_);
-    return;
-    /*bool firstGen = true;
+    bool firstGen = true;
     for (int gen = 0; gen < nb_gen; gen++) {
         AeTime::plusplus();
 
         run_a_step(w_max_, selection_pressure_, firstGen);
-
+        printf("Processor %d:%s has finished generation %d \n",world_rank_, processor_name_, gen);
         firstGen = false;
-        printf("Generation %d : Best individual fitness %e\n", AeTime::time(), best_indiv->fitness);
+        //printf("Generation %d : Best individual fitness %e\n", AeTime::time(), best_indiv->fitness);
 
         for (int indiv_id = 0; indiv_id < nb_indivs_; ++indiv_id) {
             delete dna_mutator_array_[indiv_id];
             dna_mutator_array_[indiv_id] = nullptr;
         }
-
+/*
         if (AeTime::time() % backup_step_ == 0) {
             save(AeTime::time());
             cout << "Backup for generation " << AeTime::time() << " done !" << endl;
-        }
-    }*/
+        }*/
+    }
 }
 
 #ifdef USE_CUDA

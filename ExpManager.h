@@ -89,7 +89,10 @@ class ExpManager {
         void run_a_step(double w_max, double selection_pressure, bool first_gen);
 
         void prepare_mutation(int indiv_id);
+        void prepare_mutation_border(int indiv_id, char* dna_recv);
+
         void selection(int indiv_id);
+        void selection_border(int indiv_id, double* border);
 
         inline void apply_mutation(int indiv_id) { internal_organisms_[indiv_id]->apply_mutations(); }
 
@@ -126,10 +129,15 @@ class ExpManager {
         Stats* stats_best = nullptr;
         Stats* stats_mean = nullptr;
 
+        double best_fiteness_private;
+        double* fitness_array_torecv;
+        char* dna_array_torecv;
+        double* fitness_array_tosend;
+        char* dna_array_tosend;
 
         int grid_height_;
         int grid_width_;
-
+        int dna_length_;
         double mutation_rate_;
 
         double w_max_;

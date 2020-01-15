@@ -56,6 +56,8 @@ public:
 
     Organism(ExpManager *exp_m, gzFile backup_file);
 
+    Organism(ExpManager *exp_m, int length);
+
     ~Organism();
 
     void save(gzFile backup_file);
