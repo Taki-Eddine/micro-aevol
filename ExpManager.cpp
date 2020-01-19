@@ -161,7 +161,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
     }
 
     // Create backup and stats directory
-    create_directory();
+    // create_directory();
 }
 
 /**
@@ -428,7 +428,7 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
             prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
             internal_organisms_[indiv_id] = nullptr;
         }
-
+/*
     // Search for the best
         #pragma omp single
         {
@@ -451,11 +451,11 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
                 best_fitness = best_fiteness_private;
                 idx_best = idx_best_private;
             }
-        }
+        }*/
 
-    }
+    
 
-    best_indiv = prev_internal_organisms_[idx_best];
+    /*best_indiv = prev_internal_organisms_[0];
 
     // Stats
     if (first_gen) {
@@ -465,16 +465,18 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
         stats_best->reinit(AeTime::time());
         stats_mean->reinit(AeTime::time());
     }
+*/
+        #pragma omp for
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            if (first_gen || dna_mutator_array_[indiv_id]->hasMutate())
+                prev_internal_organisms_[indiv_id]->compute_protein_stats();
+        }
 
-    #pragma omp parallel for
-    for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
-        if (first_gen || dna_mutator_array_[indiv_id]->hasMutate())
-            prev_internal_organisms_[indiv_id]->compute_protein_stats();
     }
-
+/*
     stats_best->write_best();
     stats_mean->write_average();
-
+*/
 }
 
 
@@ -1141,7 +1143,7 @@ void ExpManager::run_evolution(int nb_gen) {
         delete dna_mutator_array_[indiv_id];
     }
 
-    printf("Running evolution from %d to %d\n", AeTime::time(), AeTime::time() + nb_gen);
+    //printf("Running evolution from %d to %d\n", AeTime::time(), AeTime::time() + nb_gen);
     bool firstGen = true;
 
     for (int gen = 0; gen < nb_gen; gen++) {
@@ -1150,17 +1152,17 @@ void ExpManager::run_evolution(int nb_gen) {
         run_a_step(w_max_, selection_pressure_, firstGen);
 
         firstGen = false;
-        printf("Generation %d : Best individual fitness %e\n", AeTime::time(), best_indiv->fitness);
+        //printf("Generation %d : Best individual fitness %e\n", AeTime::time(), best_indiv->fitness);
 
         for (int indiv_id = 0; indiv_id < nb_indivs_; ++indiv_id) {
             delete dna_mutator_array_[indiv_id];
             dna_mutator_array_[indiv_id] = nullptr;
         }
 
-        if (AeTime::time() % backup_step_ == 0) {
+       /* if (AeTime::time() % backup_step_ == 0) {
             save(AeTime::time());
             cout << "Backup for generation " << AeTime::time() << " done !" << endl;
-        }
+        }*/
     }
 }
 

@@ -29,6 +29,7 @@
 #include <iostream>
 #include <getopt.h>
 #include <cstring>
+#include <chrono>
 
 #include "ExpManager.h"
 
@@ -69,7 +70,7 @@ void print_help(char* prog_path) {
 }
 
 int main(int argc, char* argv[]) {
-
+/*
     int nbstep = -1;
     int width = -1;
     int height = -1;
@@ -180,26 +181,49 @@ int main(int argc, char* argv[]) {
         if (seed == -1) seed = 566545665;
         if (nb_threads == -1) nb_threads = 1;
     }
+*/
+std::ofstream res_file;
+res_file.open("./simulation_example_/results_mutation_rate.csv", std::ios_base::app);
 
-
-
-    ExpManager *exp_manager;
-    if (resume == -1) {
-        exp_manager = new ExpManager(height, width, seed, mutation_rate, genome_size, 0.03, 1000,
-                                                 backup_step, nb_threads);
-    } else {
-        printf("Resuming...\n");
-        exp_manager = new ExpManager(resume);
+for (int nb_threads = 1; nb_threads <= 4; nb_threads++){
+    /*for (int nb_gens = 1000; nb_gens <= 20000; nb_gens += 1000){
+        ExpManager *exp_manager;
+        exp_manager = new ExpManager(32,32, 1337, 0.00001, 4096, 0.03, 1000, 1000, nb_threads);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        exp_manager->run_evolution(nb_gens);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        if(nb_gens % 1000 == 0){
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+            res_file << nb_threads << ',' << nb_gens << ',' << duration << '\n';
+        }
+        delete exp_manager;
+    }*/
+    /*
+    for (int genom_length = 1024; genom_length <= 8192; genom_length = genom_length * 2){
+        ExpManager *exp_manager;
+        exp_manager = new ExpManager(32,32, 1337, 0.00001, genom_length, 0.03, 1000, 1000, nb_threads);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        exp_manager->run_evolution(10000);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        res_file << nb_threads << ',' << genom_length << ',' << duration << '\n';
+        delete exp_manager;
     }
-
-#ifdef USE_CUDA
-    printf("Activate CUDA\n");
-    exp_manager->run_evolution_on_gpu(nbstep);
-#else
-    exp_manager->run_evolution(nbstep);
-#endif
-
-    delete exp_manager;
+    */
+    
+    for (double muration_rate = 0.05; muration_rate <= 0.5; muration_rate += 0.05){
+        ExpManager *exp_manager;
+        exp_manager = new ExpManager(32,32, 1337, muration_rate, 2048, 0.03, 1000, 1000, nb_threads);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        exp_manager->run_evolution(20);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        res_file << nb_threads << ',' << muration_rate << ',' << duration << '\n';
+        delete exp_manager;
+    }
+    
+}
+    
 
     return 0;
 }
