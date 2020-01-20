@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
     }
 
     printf("Processor %d:%s has started\n",world_rank, processor_name);
-
+/*
     int nbstep = -1;
     int width = -1;
     int height = -1;
@@ -202,20 +202,55 @@ int main(int argc, char* argv[]) {
         if (nb_threads == -1) nb_threads = 1;
     }
 
+*/
 
+std::ofstream res_file;
+if (world_rank == 0){
+    res_file.open("./simulation_example_/results_nb_gens.csv", std::ios_base::app);
+}
 
-    ExpManager *exp_manager;
-    if (resume == -1) {
-        exp_manager = new ExpManager(height, width, seed, mutation_rate, genome_size, 0.03, 1000,
-                                                 backup_step, nb_threads, world_rank, processor_name);
-    } else {
-        printf("Resuming...\n");
-        exp_manager = new ExpManager(resume);
+for (int nb_threads = 1; nb_threads <= 4; nb_threads++){
+    for (int nb_gens = 1000; nb_gens <= 20000; nb_gens += 1000){
+        ExpManager *exp_manager;
+        exp_manager = new ExpManager(32,32, 1337, 0.00001, 4096, 0.03, 1000, 1000, nb_threads);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        exp_manager->run_evolution(nb_gens);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        if(world_rank == 0 && nb_gens % 1000 == 0){
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+            res_file << 'mpi,' << 2 * nb_threads << ',' << nb_gens << ',' << duration << '\n';
+        }
+        delete exp_manager;
     }
 
-    exp_manager->run_evolution(nbstep);
+    /*
+    for (int genom_length = 1024; genom_length <= 8192; genom_length = genom_length * 2){
+        ExpManager *exp_manager;
+        exp_manager = new ExpManager(32,32, 1337, 0.00001, genom_length, 0.03, 1000, 1000, nb_threads);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        exp_manager->run_evolution(10000);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        res_file << nb_threads << ',' << genom_length << ',' << duration << '\n';
+        delete exp_manager;
+    }
+    */
 
-    delete exp_manager;
+    /* 
+    for (double muration_rate = 0.05; muration_rate <= 0.5; muration_rate += 0.05){
+        ExpManager *exp_manager;
+        exp_manager = new ExpManager(32,32, 1337, muration_rate, 2048, 0.03, 1000, 1000, nb_threads);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        exp_manager->run_evolution(20);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        res_file << nb_threads << ',' << muration_rate << ',' << duration << '\n';
+        delete exp_manager;
+    }
+    */
+    
+}
+
     MPI_Finalize();
     return 0;
 }

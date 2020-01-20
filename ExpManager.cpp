@@ -105,7 +105,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
 
     if (world_rank_ == 0){
         // Building the target environment
-        printf("Processor %d:%s is building the target env\n", world_rank_, processor_name_);
+        //printf("Processor %d:%s is building the target env\n", world_rank_, processor_name_);
         Gaussian *g1 = new Gaussian(1.2, 0.52, 0.12);
         Gaussian *g2 = new Gaussian(-1.4, 0.5, 0.07);
         Gaussian *g3 = new Gaussian(0.3, 0.8, 0.03);
@@ -163,7 +163,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
         }
     }
     if (world_rank_ == 0){
-        printf("Processor %d:%s is sending the target enivronment\n",world_rank_, processor_name_);
+        //printf("Processor %d:%s is sending the target enivronment\n",world_rank_, processor_name_);
         MPI_Send(
                 /* data         = */ target, 
                 /* count        = */ 300, 
@@ -171,7 +171,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
                 /* destination  = */ 1, 
                 /* tag          = */ 0, 
                 /* communicator = */ MPI_COMM_WORLD);
-        printf("Processor %d:%s is sending the founding indiv\n",world_rank_, processor_name_);
+        //printf("Processor %d:%s is sending the founding indiv\n",world_rank_, processor_name_);
         MPI_Send(
                 /* data         = */ internal_organisms_[0]->dna_->seq_.data(), 
                 /* count        = */ internal_organisms_[0]->length(), 
@@ -190,7 +190,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
             /* tag          = */ 0, 
             /* communicator = */ MPI_COMM_WORLD, 
             /* status       = */ MPI_STATUS_IGNORE);
-        printf("Processor %d:%s has received the target enivronment\n",world_rank_, processor_name_);
+        //printf("Processor %d:%s has received the target enivronment\n",world_rank_, processor_name_);
         
         auto target_organisme = std::make_shared<Organism>(this, init_length_dna, 0);
         MPI_Recv(
@@ -201,7 +201,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
             /* tag          = */ 1, 
             /* communicator = */ MPI_COMM_WORLD, 
             /* status       = */ MPI_STATUS_IGNORE);
-        printf("Processor %d:%s has received the founding indiv\n",world_rank_, processor_name_);
+        //printf("Processor %d:%s has received the founding indiv\n",world_rank_, processor_name_);
         internal_organisms_[0] = target_organisme;
         start_stop_RNA(0);
         compute_RNA(0);
@@ -1441,13 +1441,13 @@ void ExpManager::run_evolution(int nb_gen) {
 
         delete dna_mutator_array_[indiv_id];
     }
-    printf("Running evolution from %d to %d in processor %d:%s\n", AeTime::time(), AeTime::time() + nb_gen, world_rank_, processor_name_);
+    //printf("Running evolution from %d to %d in processor %d:%s\n", AeTime::time(), AeTime::time() + nb_gen, world_rank_, processor_name_);
     bool firstGen = true;
     for (int gen = 0; gen < nb_gen; gen++) {
         AeTime::plusplus();
 
         run_a_step(w_max_, selection_pressure_, firstGen);
-        printf("Processor %d:%s has finished generation %d \n",world_rank_, processor_name_, gen);
+        //printf("Processor %d:%s has finished generation %d \n",world_rank_, processor_name_, gen);
         firstGen = false;
         //printf("Generation %d : Best individual fitness %e\n", AeTime::time(), best_indiv->fitness);
 
